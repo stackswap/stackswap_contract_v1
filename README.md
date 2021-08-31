@@ -40,9 +40,9 @@ Can control STSW supply. Voting with STSW and vSTSW(todo).
     ```
 
 ## Future Works
-Multiple AMM choices
-Create Farming Pool
-Connect advance trading funcionalities
+Multiple AMM choices /
+Create Farming Pool /
+Connect advance trading funcionalities /
 Advanced governance features
 
 
