@@ -1,0 +1,46 @@
+#V2
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-governance-v1 propose u1 u"haha" u"haha" (list {name: "swap", address: 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE, qualified-name: 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-v2, can-mint: true, can-burn: true}))\n
+::get_assets_maps
+(contract-call? .stackswap-governance-v1 vote-for .stsw-token u1 u100000)
+::advance_chain_tip 10
+(contract-call? .stackswap-governance-v1 vote-for .stsw-token u1 u100000)
+::get_assets_maps
+::advance_chain_tip 10000
+(contract-call? .end-proposal u1)
+(contract-call? .stackswap-governance-v1 .end-proposal u1)
+(contract-call? .stackswap-governance-v1 end-proposal u1)
+::get_assets_maps
+(contract-call? .return-votes-to-member .stsw-token u1 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE)
+(contract-call? .stackswap-governance-v1 return-votes-to-member .stsw-token u1 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE)
+::get_assets_maps
+(contract-call? .stackswap-swap-v1 create-pair .plaid-token .stx-token .plaid-stx-token  "Sangwon-NAR" u10000000 u15000000)
+::help
+::set_tx_sender ST2SVRCJJD90TER037VCSAFA781HQTCPFK9YRA6J5
+(contract-call? .stackswap-swap-v1 create-pair .plaid-token .stx-token .plaid-stx-token  "Sangwon-NAR" u10000000 u15000000)
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-v1 create-pair 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.plaid-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stx-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.plaid-stx-token  "Sangwon-NAR" u10000000 u15000000)
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-v2 create-pair 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.plaid-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stx-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.plaid-stx-token  "Sangwon-NAR" u10000000 u15000000)
+
+
+(contract-call? .stackswap-swap-v1 create-pair 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.plaid-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.wstx-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.plaid-wstx-token  "Sangwon-NAR" u10000000 u15000000)
+
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-one-step-mint-v1 create-pair-new-sip10-token-with-stx 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.tokensoft-token-v2 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-tokensoft-token "idontknow" u1000000 u1500000 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.tokensoft-token-v2 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-tokensoft-token "name" "symbol" u5 u"aa" u"aaa" u1000100000000)
+
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-one-step-mint-v1 create-pair-new-poxl-token-with-stx 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-tokensoft-token "idontknow" u1000000 u1500000 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-tokensoft-token "name" "symbol" u5 u"aa" u"aaa" u1000100000000 u1 u5 u5 u1000000)
+
+(contract-call? .stackswap-one-step-mint-v1 create-pair-new-liquidity-token .wstx-token .plaid-token .liquidity-tokensoft-token "haha" u1111 u1111 .liquidity-tokensoft-token)
+
+(contract-call? .liquidity-tokensoft-token initialize "aa" "aa" u6 u"")
+
+(contract-call? .stackswap-one-step-mint-v1 add-liquidity-token .liquidity-tokensoft-token)
+
+(contract-call? .stackswap-one-step-mint-v1 get-liquidity-token-list)
+
+(contract-call? .stackswap-dao mint-token .stsw-token u10000000000 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE)
+
+::set_tx_sender ST20ATRN26N9P05V2F1RHFRV24X8C8M3W54E427B2
+
+::advance_chain_tip 10
+
+::get_assets_maps
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 mine-tokens u1)
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 claim-token-reward u10)

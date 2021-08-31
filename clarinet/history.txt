@@ -1,0 +1,19 @@
+#V2
+::set_tx_sender ST2SVRCJJD90TER037VCSAFA781HQTCPFK9YRA6J5 
+::set_tx_sender <ST2SVRCJJD90TER037VCSAFA781HQTCPFK9YRA6J5>
+::set_tx_sender <'ST2SVRCJJD90TER037VCSAFA781HQTCPFK9YRA6J5>
+::set_tx_sender <ST20ATRN26N9P05V2F1RHFRV24X8C8M3W54E427B2>
+::set_tx_sender ST20ATRN26N9P05V2F1RHFRV24X8C8M3W54E427B2
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-one-step-mint-v1 create-pair-new-poxl-token-with-stx 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-tokensoft-token "idontknow" u1000000 u1500000 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-tokensoft-token "name" "symbol" u5 u"aa" u"aaa" u1000100000000 u1 u5 u5 u1000000)
+::get
+::get_assets_maps
+::help
+::advance_chain_tip 10
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 mine-tokens u1)
+::advance_chain_tip 10\n
+::advance_chain_tip 10
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 mine-tokens u1)
+::get)::get_assets_maps\n
+::get_assets_maps\n
+(contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.poxlsoft-token-v1 claim-token-reward u10)
+::get_assets_maps

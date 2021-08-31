@@ -1,0 +1,93 @@
+[project]
+name = "stackswap.clarinet"
+requirements = []
+
+
+[contracts.sip-010-trait]
+path = "contracts/trait-sip-010.clar"
+depends_on = []
+
+[contracts.restricted-token-trait]
+path = "contracts/trait-restricted-token.clar"
+depends_on = []
+
+[contracts.liquidity-token-trait]
+path = "contracts/trait-liquidity-token.clar"
+depends_on = []
+
+[contracts.stackswap-dao-token-trait]
+path = "contracts/stackswap-dao-token-trait.clar"
+depends_on = []
+
+[contracts.initializable-token-trait]
+path = "contracts/trait-initializable-token.clar"
+depends_on = []
+
+[contracts.listTest]
+path = "contracts/listTest.clar"
+depends_on = []
+
+[contracts.stackswap-dao]
+path = "contracts/stackswap-dao.clar"
+depends_on = ["stackswap-dao-token-trait"]
+
+
+[contracts.stackswap-swap-fee-v1]
+path = "contracts/stackswap-swap-fee-v1.clar"
+depends_on = []
+
+[contracts.stackswap-swap-v1]
+path = "contracts/stackswap-swap-v1.clar"
+depends_on = ["sip-010-trait", "liquidity-token-trait", "stackswap-swap-fee-v1"]
+
+
+[contracts.plaid-token]
+path = "contracts/token-plaid.clar"
+depends_on = ["sip-010-trait"]
+
+[contracts.wstx-token]
+path = "contracts/token-wstx.clar"
+depends_on = ["sip-010-trait"]
+
+[contracts.tokensoft-token]
+path = "contracts/token-tokensoft.clar"
+depends_on = ["sip-010-trait", "restricted-token-trait"]
+
+[contracts.tokensoft-token-v2]
+path = "contracts/token-tokensoft-v2.clar"
+depends_on = ["sip-010-trait", "restricted-token-trait", "initializable-token-trait", "stackswap-one-step-mint-fee-v1"]
+
+[contracts.stsw-token]
+path = "contracts/token-stsw.clar"
+depends_on = ["sip-010-trait", "restricted-token-trait"]
+
+[contracts.stackswap-governance-v1]
+path = "contracts/stackswap-governance-v1.clar"
+depends_on = ["stsw-token"]
+
+[contracts.poxlsoft-token-v1]
+path = "contracts/token-poxlsoft-v1.clar"
+depends_on = ["sip-010-trait", "restricted-token-trait", "initializable-token-trait", "stackswap-one-step-mint-fee-v1"]
+
+
+[contracts.tokensoft-wstx-token]
+path = "contracts/liquidity-token-tokensoft-wstx.clar"
+depends_on = ["liquidity-token-trait", "stackswap-dao"]
+
+[contracts.plaid-wstx-token]
+path = "contracts/liquidity-token-plaid-wstx.clar"
+depends_on = ["liquidity-token-trait", "stackswap-dao"]
+
+
+[contracts.liquidity-tokensoft-token]
+path = "contracts/liquidity-tokensoft-v1.clar"
+depends_on = ["liquidity-token-trait", "stackswap-dao"]
+
+
+[contracts.stackswap-one-step-mint-v1]
+path = "contracts/stackswap-one-step-mint-v1.clar"
+depends_on = ["sip-010-trait", "liquidity-token-trait", "stackswap-swap-v1", "wstx-token", "liquidity-tokensoft-token", "tokensoft-token-v2", "poxlsoft-token-v1"]
+
+[contracts.stackswap-one-step-mint-fee-v1]
+path = "contracts/stackswap-one-step-mint-fee-v1.clar"
+depends_on = []

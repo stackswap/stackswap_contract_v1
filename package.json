@@ -1,0 +1,35 @@
+{ 
+  "name": "stackswap",
+  "type": "module",
+  "version": "1.0.0",
+  "author": {
+    "name": "lucidefi",
+    "email": "stackswap.official@gmail.com"
+  },
+  "repository": "https://github.com/stackswap/stackswap_contract_v1.git",
+  "private": false,
+  "main": "lib/index",
+  "license": "MIT",
+  "engines": {
+    "node": ">=10"
+  },
+  "scripts": {
+    "test": "mocha 'test/unit/*.js'",
+    "stackswap": "mocha 'test/integration/stackswap-integration.js'",
+    "deploy": ""
+  },
+  "devDependencies": {
+    "chai": "^4.3.4",
+    "chai-string": "^1.5.0",
+    "mocha": "^8.3.2"
+  },
+  "dependencies": {
+    "@blockstack/clarity": "^0.3.11",
+    "@blockstack/clarity-cli": "^0.3.11",
+    "@stacks/transactions": "^1.3.5",
+    "bn.js": "^5.2.0",
+    "dotenv": "^8.2.0",
+    "pg": "^8.6.0",
+    "stacks": "^0.1.0"
+  }
+}
