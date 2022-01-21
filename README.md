@@ -12,7 +12,7 @@ Allows 1-step minting of SIP-10 and PoXL tokens.
 #### Farming
 The liquidity provider receives the reward tokens based on the contribution to the liquidity supply provided. Reward tokens per each block are allocated according to the weighted average liquidity value that considers the amount of time the token is held.
 #### DAO/Governance
-Can control STSW supply. Voting with STSW and vSTSW(todo). 
+Can control STSW supply. Voting with STSW and vSTSW. 
 
 
 ## STACKSWAP Contract Structure
@@ -41,7 +41,6 @@ Can control STSW supply. Voting with STSW and vSTSW(todo).
 
 ## Future Works
 Multiple AMM choices /
-Create Farming Pool /
 Connect advance trading funcionalities /
 Advanced governance features
 
