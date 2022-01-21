@@ -1,25 +1,29 @@
-(use-trait ft-trait 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.sip-010-trait.ft-trait)
+(use-trait ft-trait .sip-010-trait-v1.sip-010-trait)
 
-;; stackswap governance
-;; 
-;; Can see, vote and submit a new proposal
-;; A proposal will just update the DAO with new contracts.
+(define-constant ERR_NOT_ENOUGH_BALANCE u4121)
+(define-constant ERR_NO_CONTRACT_CHANGES u4122)
+(define-constant ERR_CONTRACT_CHANGE_CALL u4123)
+(define-constant ERR_BLOCK_HEIGHT_NOT_REACHED u4124)
+(define-constant ERR_NOT_AUTHORIZED u4125)
+(define-constant ERR_PROPOSAL_IS_NOT_OPEN u4126)
+(define-constant ERR_BLOCK_PASSED u4127)
+(define-constant ERR_DAO_GET u4128)
+(define-constant ERR_ALREADY_RETURNED u4129)
+(define-constant ERR_TRANSFER_FAIL u4130)
+(define-constant ERR_COUNCIL_TERM_LIMIT u4131)
+(define-constant ERR_BLOCK_HEIGHT_REACHED u4132)
+(define-constant ERR_NOT_STARTED u4133)
+(define-constant ERR_INVALID_ROUTER u4133)
 
-;; Errors
-(define-constant ERR-NOT-ENOUGH-BALANCE u31)
-(define-constant ERR-NO-CONTRACT-CHANGES u32)
-(define-constant ERR-WRONG-TOKEN u33)
-(define-constant ERR-EMERGENCY-SHUTDOWN-ACTIVATED u34)
-(define-constant ERR-BLOCK-HEIGHT-NOT-REACHED u35)
-(define-constant ERR-NOT-AUTHORIZED u3401)
-(define-constant STATUS-OK u3200)
 
-;; Constants
-(define-constant DAO-OWNER tx-sender)
+(define-constant BASIC_PRINCIPAL tx-sender)
+(define-constant VOTING_CYCLE u288)
+(define-constant MIN_PROPOSE_LIMIT u8000000000000)
+(define-constant MIN_EXECUTE_LIMIT u20000000000000)
+(define-constant COUNCIL_TERM_LENGTH u1000)
 
-;; Proposal variables
 (define-map proposals
-  { id: uint }
+  uint
   {
     id: uint,
     proposer: principal,
@@ -30,47 +34,66 @@
     end-block-height: uint,
     yes-votes: uint,
     no-votes: uint,
-    contract-changes: (list 10 (tuple (name (string-ascii 256)) (address principal) (qualified-name principal) (can-mint bool) (can-burn bool)))
+    contract-changes: (list 10 (tuple (name (string-ascii 256)) (address principal) (qualified-name principal))),
   }
 )
 
 (define-data-var proposal-count uint u0)
 (define-data-var proposal-ids (list 100 uint) (list u0))
 
-(define-map votes-by-member { proposal-id: uint, member: principal } { vote-count: uint })
-(define-map tokens-by-member { proposal-id: uint, member: principal, token: principal } { amount: uint })
+(define-data-var reward-amount-per-proposal uint u1000000)
 
-;; Get all proposals
+(define-map votes-by-member { proposal-id: uint, member: principal } { vote-count: uint, returned: bool })
+
 (define-read-only (get-proposals)
   (ok (map get-proposal-by-id (var-get proposal-ids)))
 )
 
-;; Get all proposal IDs
 (define-read-only (get-proposal-ids)
   (ok (var-get proposal-ids))
 )
 
-;; Get votes for a member on proposal
 (define-read-only (get-votes-by-member-by-id (proposal-id uint) (member principal))
   (default-to 
-    { vote-count: u0 }
+    { vote-count: u0, returned: false }
     (map-get? votes-by-member { proposal-id: proposal-id, member: member })
   )
 )
 
-(define-read-only (get-tokens-by-member-by-id (proposal-id uint) (member principal) (token <ft-trait>))
-  (default-to 
-    { amount: u0 }
-    (map-get? tokens-by-member { proposal-id: proposal-id, member: member, token: (contract-of token) }) 
+(define-map governance-council principal bool)
+
+(define-read-only (is-council (user principal))
+  (match (map-get? governance-council user)
+    value true
+    false
   )
 )
 
-;; Get proposal
+(define-public (add-governance-council (user principal))
+  (begin
+    (asserts! (is-eq contract-caller (contract-call? .stackswap-dao get-dao-owner)) (err ERR_NOT_AUTHORIZED))
+    (ok (map-set governance-council 
+      user true
+    ))
+  )
+)
+
+(map-set governance-council tx-sender true)
+
+(define-public (remove-governance-council (user principal))
+  (begin
+    (asserts! (is-eq contract-caller (contract-call? .stackswap-dao get-dao-owner)) (err ERR_NOT_AUTHORIZED))
+    (ok (map-delete governance-council 
+      user
+    ))
+  )
+)
+
 (define-read-only (get-proposal-by-id (proposal-id uint))
   (default-to
     {
       id: u0,
-      proposer: DAO-OWNER,
+      proposer: BASIC_PRINCIPAL,
       title: u"",
       url: u"",
       is-open: false,
@@ -78,53 +101,43 @@
       end-block-height: u0,
       yes-votes: u0,
       no-votes: u0,
-      contract-changes: (list { name: "", address: DAO-OWNER, qualified-name: DAO-OWNER, can-mint: false, can-burn: false} )
+      contract-changes: (list { name: "", address: BASIC_PRINCIPAL, qualified-name: BASIC_PRINCIPAL} ),
     }
-    (map-get? proposals { id: proposal-id })
+    (map-get? proposals  proposal-id)
   )
 )
 
-;; To check which tokens are accepted as votes
-(define-read-only (is-token-accepted (token <ft-trait>))
-  (let (
-    (is-stsw (is-eq (contract-of token) 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stsw-token))
-    (is-vstsw (is-eq (contract-of token) 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.vstsw-token))
-  )
-    (or is-stsw  is-vstsw)
-  )
-)
 
-;; Start a proposal
-;; Requires 1% of the supply in your wallet
-;; Default voting period is 5 days (144 * 5 blocks)
 (define-public (propose
     (start-block-height uint)
     (title (string-utf8 256))
     (url (string-utf8 256))
-    (contract-changes (list 10 (tuple (name (string-ascii 256)) (address principal) (qualified-name principal) (can-mint bool) (can-burn bool))))
+    (contract-changes (list 10 (tuple (name (string-ascii 256)) (address principal) (qualified-name principal))))
   )
   (let (
-    (proposer-balance (unwrap-panic (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stsw-token get-balance-of tx-sender)))
-    (supply (- (unwrap-panic (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stsw-token get-total-supply)) u200000000))
+    (proposer-balance (unwrap-panic (contract-call? .vstsw-token get-balance contract-caller)))
     (proposal-id (+ u1 (var-get proposal-count)))
   )
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) (err ERR_INVALID_ROUTER))
+    (asserts! (<= block-height start-block-height) (err ERR_BLOCK_PASSED))
+    (asserts! (>= proposer-balance MIN_PROPOSE_LIMIT) (err ERR_NOT_ENOUGH_BALANCE))
+    (asserts! (> (len contract-changes) u0) (err ERR_NO_CONTRACT_CHANGES))
 
-    ;; Requires 0.1% of the supply 
-    (asserts! (>= (* proposer-balance u1000) supply) (err ERR-NOT-ENOUGH-BALANCE))
-    ;; Mutate
+    (asserts! (is-eq (unwrap! (contract-call? .stackswap-dao get-qualified-name-by-name "governance") (err ERR_DAO_GET)) (as-contract tx-sender)) (err ERR_NOT_AUTHORIZED))
+
     (map-set proposals
-      { id: proposal-id }
+      proposal-id
       {
         id: proposal-id,
-        proposer: tx-sender,
+        proposer: contract-caller,
         title: title,
         url: url,
         is-open: true,
         start-block-height: start-block-height,
-        end-block-height: (+ start-block-height u720),
+        end-block-height: (+ start-block-height VOTING_CYCLE),
         yes-votes: u0,
         no-votes: u0,
-        contract-changes: contract-changes
+        contract-changes: contract-changes,
       }
     )
     (var-set proposal-count proposal-id)
@@ -133,138 +146,126 @@
   )
 )
 
-(define-public (vote-for (token <ft-trait>) (proposal-id uint) (amount uint))
+(define-public (vote-for (proposal-id uint) (amount uint))
   (let (
     (proposal (get-proposal-by-id proposal-id))
-    (vote-count (get vote-count (get-votes-by-member-by-id proposal-id tx-sender)))
-    (token-count (get amount (get-tokens-by-member-by-id proposal-id tx-sender token)))
+    (user contract-caller)
+    (user-data (get-votes-by-member-by-id proposal-id user))
+    (vote-count (get vote-count user-data))
   )
-    (asserts! (is-eq (is-token-accepted token) true) (err ERR-WRONG-TOKEN))
-    ;; Proposal should be open for voting
-    (asserts! (is-eq (get is-open proposal) true) (err ERR-NOT-AUTHORIZED))
-    ;; Vote should be casted after the start-block-height
-    (asserts! (>= block-height (get start-block-height proposal)) (err ERR-NOT-AUTHORIZED))
-    ;; Voter should be able to stake
-    (try! (contract-call? token transfer amount tx-sender (as-contract tx-sender)))
-    ;; Mutate
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) (err ERR_INVALID_ROUTER))
+    (asserts! (is-eq (get is-open proposal) true) (err ERR_PROPOSAL_IS_NOT_OPEN))
+    (asserts! (>= block-height (get start-block-height proposal)) (err ERR_NOT_STARTED))
+    (asserts! (< block-height (get end-block-height proposal)) (err ERR_BLOCK_HEIGHT_REACHED))
+    (unwrap! (contract-call? .vstsw-token transfer amount user (as-contract tx-sender) none) (err ERR_TRANSFER_FAIL))
     (map-set proposals
-      { id: proposal-id }
+      proposal-id 
       (merge proposal { yes-votes: (+ amount (get yes-votes proposal)) }))
     (map-set votes-by-member 
-      { proposal-id: proposal-id, member: tx-sender }
-      { vote-count: (+ vote-count amount) })
-    (map-set tokens-by-member
-      { proposal-id: proposal-id, member: tx-sender, token: (contract-of token) }
-      { amount: (+ token-count amount) })
-
-    (ok STATUS-OK)
+      { proposal-id: proposal-id, member: user }
+      (merge user-data { vote-count: (+ vote-count amount)}))
+    (ok true)
   )
 )
 
-(define-public (vote-against (token <ft-trait>) (proposal-id uint) (amount uint))
+(define-public (vote-against (proposal-id uint) (amount uint))
   (let (
     (proposal (get-proposal-by-id proposal-id))
-    (vote-count (get vote-count (get-votes-by-member-by-id proposal-id tx-sender)))
-    (token-count (get amount (get-tokens-by-member-by-id proposal-id tx-sender token)))
+    (user contract-caller)
+    (user-data (get-votes-by-member-by-id proposal-id user))
+    (vote-count (get vote-count user-data))
   )
-
-    (asserts! (is-eq (is-token-accepted token) true) (err ERR-WRONG-TOKEN))
-    ;; Proposal should be open for voting
-    (asserts! (is-eq (get is-open proposal) true) (err ERR-NOT-AUTHORIZED))
-    ;; Vote should be casted after the start-block-height
-    (asserts! (>= block-height (get start-block-height proposal)) (err ERR-NOT-AUTHORIZED))
-    ;; Voter should be able to stake
-    (try! (contract-call? token transfer amount tx-sender (as-contract tx-sender)))
-    ;; Mutate
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) (err ERR_INVALID_ROUTER))
+    (asserts! (is-eq (get is-open proposal) true) (err ERR_PROPOSAL_IS_NOT_OPEN))
+    (asserts! (>= block-height (get start-block-height proposal)) (err ERR_NOT_STARTED))
+    (asserts! (< block-height (get end-block-height proposal)) (err ERR_BLOCK_HEIGHT_REACHED))
+    (unwrap! (contract-call? .vstsw-token transfer amount user (as-contract tx-sender) none ) (err ERR_TRANSFER_FAIL))
     (map-set proposals
-      { id: proposal-id }
+      proposal-id
       (merge proposal { no-votes: (+ amount (get no-votes proposal)) }))
     (map-set votes-by-member 
-      { proposal-id: proposal-id, member: tx-sender }
-      { vote-count: (+ vote-count amount) })
-    (map-set tokens-by-member
-      { proposal-id: proposal-id, member: tx-sender, token: (contract-of token) }
-      { amount: (+ token-count amount) })
-    (ok STATUS-OK)
+      { proposal-id: proposal-id, member: user }
+      (merge user-data { vote-count: (+ vote-count amount)}))
+    (ok true)
   )
 )
 
 (define-public (end-proposal (proposal-id uint))
   (let ((proposal (get-proposal-by-id proposal-id)))
 
-    (asserts! (not (is-eq (get id proposal) u0)) (err ERR-NOT-AUTHORIZED))
-    (asserts! (is-eq (get is-open proposal) true) (err ERR-NOT-AUTHORIZED))
-    (asserts! (>= block-height (get end-block-height proposal)) (err ERR-BLOCK-HEIGHT-NOT-REACHED))
+    (asserts! (not (is-eq (get id proposal) u0)) (err ERR_NOT_AUTHORIZED))
+    (asserts! (is-eq (get is-open proposal) true) (err ERR_PROPOSAL_IS_NOT_OPEN))
+    (asserts! (>= block-height (get end-block-height proposal)) (err ERR_BLOCK_HEIGHT_NOT_REACHED))
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) (err ERR_INVALID_ROUTER))
 
     (map-set proposals
-      { id: proposal-id }
+      proposal-id
       (merge proposal { is-open: false }))
-    (if (> (get yes-votes proposal) (get no-votes proposal))
-      (try! (execute-proposal proposal-id))
-      false
+    (ok 
+      (if
+        (and 
+          (> (+ (get yes-votes proposal) (get no-votes proposal)) MIN_EXECUTE_LIMIT)
+          (> (get yes-votes proposal) (get no-votes proposal))
+        )
+        (try! (execute-proposal proposal-id))
+        false
+      )
     )
-    (ok STATUS-OK)
   )
 )
 
-;; Return votes to voter
-(define-public (return-votes-to-member (token <ft-trait>) (proposal-id uint) (member principal))
+(define-public (veto-proposal (proposal-id uint))
+  (let ((proposal (get-proposal-by-id proposal-id)))
+    (asserts! (< block-height COUNCIL_TERM_LENGTH) (err ERR_COUNCIL_TERM_LIMIT))
+    (asserts! (not (is-eq (get id proposal) u0)) (err ERR_NOT_AUTHORIZED))
+    (asserts! (is-eq (get is-open proposal) true) (err ERR_PROPOSAL_IS_NOT_OPEN))
+    (asserts! (>= block-height (get start-block-height proposal)) (err ERR_NOT_STARTED))
+    (asserts! (< block-height (get end-block-height proposal)) (err ERR_BLOCK_HEIGHT_REACHED))
+    (asserts! (is-council contract-caller) (err ERR_NOT_AUTHORIZED))
+    (map-set proposals
+      proposal-id
+      (merge proposal { is-open: false, end-block-height: (+ block-height u1) }))
+    (ok true)
+  )
+)
+
+(define-public (return-votes-to-member (proposal-id uint) (member principal))
   (let (
-    (token-count (get amount (get-tokens-by-member-by-id proposal-id member token)))
+    (user-data (get-votes-by-member-by-id proposal-id member))
+    (vote-count (get vote-count user-data))
+    (returned (get returned user-data))
     (proposal (get-proposal-by-id proposal-id))
   )
-    (asserts! (is-eq (is-token-accepted token) true) (err ERR-WRONG-TOKEN))
-    (asserts! (is-eq (get is-open proposal) false) (err ERR-NOT-AUTHORIZED))
-    (asserts! (>= block-height (get end-block-height proposal)) (err ERR-NOT-AUTHORIZED))
+    (asserts! (is-eq (get is-open proposal) false) (err ERR_PROPOSAL_IS_NOT_OPEN))
+    (asserts! (>= block-height (get end-block-height proposal)) (err ERR_NOT_AUTHORIZED))
+    (asserts! (not returned) (err ERR_ALREADY_RETURNED))
+    (map-set votes-by-member 
+      { proposal-id: proposal-id, member: member }
+      (merge user-data { returned : true}))
 
-    (as-contract (contract-call? token transfer token-count (as-contract tx-sender) member))
+    (as-contract (contract-call? .vstsw-token transfer vote-count tx-sender member none))
   )
 )
 
-;; Make needed contract changes on DAO
 (define-private (execute-proposal (proposal-id uint))
   (let (
     (proposal (get-proposal-by-id proposal-id))
     (contract-changes (get contract-changes proposal))
   )
-    (if (> (len contract-changes) u0)
-      (begin
-        (map execute-proposal-change-contract contract-changes)
-        (ok true)
-      )
-      (err ERR-NO-CONTRACT-CHANGES)
-    )
+    (asserts! (> (len contract-changes) u0) (err ERR_NO_CONTRACT_CHANGES))
+    (unwrap! (as-contract (contract-call? .stackswap-dao execute-proposals contract-changes)) (err ERR_NO_CONTRACT_CHANGES))
+    (ok true)
   )
 )
 
-;; Helper to execute proposal and change contracts
-(define-private (execute-proposal-change-contract (change (tuple (name (string-ascii 256)) (address principal) (qualified-name principal) (can-mint bool) (can-burn bool))))
-  (let (
-    (name (get name change))
-    (address (get address change))
-    (qualified-name (get qualified-name change))
-    (can-mint (get can-mint change))
-    (can-burn (get can-burn change))
-  )
-    (if (not (is-eq name ""))
-      (begin
-        (try! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao set-contract-address name address qualified-name can-mint can-burn))
-        (ok true)
-      )
-      (ok false)
-    )
-  )
-)
-
-;; adds a new contract, only new ones allowed
-(define-public (add-contract-address (name (string-ascii 256)) (address principal) (qualified-name principal) (can-mint bool) (can-burn bool))
+(define-public (add-contract-address (name (string-ascii 256)) (address principal) (qualified-name principal))
   (begin
-    (asserts! (is-eq tx-sender (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao get-dao-owner)) (err ERR-NOT-AUTHORIZED))
+    (asserts! (is-eq contract-caller (contract-call? .stackswap-dao get-dao-owner)) (err ERR_NOT_AUTHORIZED))
 
-    (if (is-some (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao get-contract-address-by-name name))
+    (if (is-some (contract-call? .stackswap-dao get-contract-address-by-name name))
       (ok false)
       (begin
-        (try! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao set-contract-address name address qualified-name can-mint can-burn))
+        (try! (as-contract (contract-call? .stackswap-dao set-contract-address name address qualified-name)))
         (ok true)
       )
     )

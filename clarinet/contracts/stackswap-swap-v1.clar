@@ -1,44 +1,41 @@
-(use-trait sip-010-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.sip-010-trait.ft-trait)
-(use-trait liquidity-token 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-token-trait.liquidity-token-trait)
 
-(define-constant contract-owner tx-sender)
-(define-constant no-liquidity-err (err u61))
-;; (define-constant transfer-failed-err (err u62))
-(define-constant not-owner-err (err u63))
-(define-constant no-fee-to-address-err (err u64))
-(define-constant invalid-pair-err (err u65))
-(define-constant no-such-position-err (err u66))
-(define-constant balance-too-low-err (err u67))
-(define-constant too-many-pairs-err (err u68))
-(define-constant pair-already-exists-err (err u69))
-(define-constant wrong-token-err (err u70))
-(define-constant too-much-slippage-err (err u71))
-(define-constant transfer-x-failed-err (err u72))
-(define-constant transfer-y-failed-err (err u73))
-(define-constant value-out-of-range-err (err u74))
-(define-constant no-fee-x-err (err u75))
-(define-constant no-fee-y-err (err u76))
-(define-constant pair-token-already-used-err (err u77))
-(define-constant fee-contract-err (err u78))
+(impl-trait .stackswap-swap-trait.stackswap-swap)
 
-;; for future use, or debug
-(define-constant e10-err (err u20))
-(define-constant e11-err (err u21))
-(define-constant e12-err (err u22))
+(use-trait sip-010-token .sip-010-trait-v1.sip-010-trait)
+(use-trait liquidity-token .liquidity-token-trait-v1.liquidity-token-trait)
 
+(define-constant ERR_NOT_OWNER (err u4161))
+(define-constant ERR_INVALID_ROUTER (err u4162))
+(define-constant ERR_PAIR_ALREADY_EXISTS (err u4163))
+(define-constant ERR_TOO_MUCH_SLIPPAGE (err u4165))
+(define-constant ERR_VALUE_OUT_OF_RANGE (err u4168))
+(define-constant ERR_NO_FEE_X (err u4169))
+(define-constant ERR_NO_FEE_Y (err u4170))
+(define-constant ERR_NOT_FEE_TO_ADDRESS (err u4171))
+(define-constant ERR_SAFE_TRANSFER_AMOUNT (err u4174))
+(define-constant ERR_SAFE_BURN_AMOUNT (err u4175))
+(define-constant ERR_SAFE_MINT_AMOUNT (err u4176))
+(define-constant ERR_DAO_ACCESS (err u4177))
+(define-constant ERR_MAP_GET (err u4178))
+
+(define-constant FEE_1 u997)
+(define-constant FEE_2 u1000)
+(define-constant FEE_3 u5)
+(define-constant FEE_4 u10000)
 
 (define-map pairs-map
-  { pair-id: uint }
+  uint
   {
     token-x: principal,
     token-y: principal,
+    liquidity-token: principal
   }
 )
 
 (define-map pairs-token-map
-  { pair-token: principal}
-  { exist: uint}
-  )
+  principal
+  bool
+)
 
 (define-map pairs-data-map
   {
@@ -46,96 +43,146 @@
     token-y: principal,
   }
   {
-    shares-total: uint,
-    balance-x: uint,
-    balance-y: uint,
-    fee-balance-x: uint,
-    fee-balance-y: uint,
-    fee-to-address: (optional principal),
     liquidity-token: principal,
-    name: (string-ascii 32),
+    pair-id: uint
   }
 )
 
 (define-data-var pair-count uint u0)
 
 
-(define-read-only (get-name (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>))
-  (let
-    (
-      (token-x (contract-of token-x-trait))
-      (token-y (contract-of token-y-trait))
-      (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
+(define-read-only (get-pair-details (token-x principal) (token-y principal))
+  (unwrap-panic (map-get? pairs-data-map { token-x: token-x, token-y: token-y }))
+)
+
+(define-read-only (get-pair-contracts (pair-id uint))
+  (unwrap-panic (map-get? pairs-map pair-id))
+)
+
+(define-read-only (get-pair-count)
+  (ok (var-get pair-count))
+)
+
+(define-private (safe-burn (lp <liquidity-token>) (user principal) (amount uint))
+  (let (
+      (start-amount-user (try! (contract-call? lp get-balance user)))
+      (transfer-result (try! (contract-call? lp burn user amount)))
+      (end-amount-user (try! (contract-call? lp get-balance user)))
     )
-    (ok (get name pair))
+    (asserts! (is-eq amount (- start-amount-user end-amount-user)) ERR_SAFE_BURN_AMOUNT)
+    (ok true)
   )
 )
 
-(define-public (get-symbol (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>))
-  (ok
-    (concat
-      (unwrap-panic (as-max-len? (unwrap-panic (contract-call? token-x-trait get-symbol)) u15))
-      (concat "-"
-        (unwrap-panic (as-max-len? (unwrap-panic (contract-call? token-y-trait get-symbol)) u15))
+(define-private (safe-mint (lp <liquidity-token>) (user principal) (amount uint))
+  (let (
+      (start-amount-user (try! (contract-call? lp get-balance user)))
+      (transfer-result (try! (contract-call? lp mint user amount)))
+      (end-amount-user (try! (contract-call? lp get-balance user)))
+    )
+    (asserts! (is-eq amount (- end-amount-user start-amount-user)) ERR_SAFE_MINT_AMOUNT)
+    (ok true)
+  )
+)
+
+(define-private (safe-transfer (x-to-lp bool) (y-to-lp bool) (dx uint) (dy uint) (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>))
+    (let 
+      (
+        (start-amount-x-lp (try! (contract-call? token-x-trait get-balance (contract-of token-liquidity-trait))))
+        (start-amount-x-user (try! (contract-call? token-x-trait get-balance tx-sender)))
+        (start-amount-y-lp (try! (contract-call? token-y-trait get-balance (contract-of token-liquidity-trait))))
+        (start-amount-y-user (try! (contract-call? token-y-trait get-balance tx-sender)))
+        (transfer-x-result 
+          (if x-to-lp
+            (try! (contract-call? token-x-trait transfer dx tx-sender (contract-of token-liquidity-trait) none))
+            (try! (contract-call? token-liquidity-trait transfer-token dx token-x-trait tx-sender))
+          )
+        )
+        (transfer-y-result 
+          (if y-to-lp
+            (try! (contract-call? token-y-trait transfer dy tx-sender (contract-of token-liquidity-trait) none))
+            (try! (contract-call? token-liquidity-trait transfer-token dy token-y-trait tx-sender))
+          )
+        )
+        (end-amount-x-lp (try! (contract-call? token-x-trait get-balance (contract-of token-liquidity-trait))))
+        (end-amount-x-user (try! (contract-call? token-x-trait get-balance tx-sender)))
+        (end-amount-y-lp (try! (contract-call? token-y-trait get-balance (contract-of token-liquidity-trait))))
+        (end-amount-y-user (try! (contract-call? token-y-trait get-balance tx-sender)))
       )
+        (if x-to-lp
+          (begin
+            (asserts! (is-eq dx (- end-amount-x-lp start-amount-x-lp)) ERR_SAFE_TRANSFER_AMOUNT)
+            (asserts! (is-eq dx (- start-amount-x-user end-amount-x-user)) ERR_SAFE_TRANSFER_AMOUNT)
+          )
+          (begin
+            (asserts! (is-eq dx (- end-amount-x-user start-amount-x-user)) ERR_SAFE_TRANSFER_AMOUNT)
+            (asserts! (is-eq dx (- start-amount-x-lp end-amount-x-lp)) ERR_SAFE_TRANSFER_AMOUNT)
+          )
+        )
+        (if y-to-lp
+          (begin
+            (asserts! (is-eq dy (- end-amount-y-lp start-amount-y-lp)) ERR_SAFE_TRANSFER_AMOUNT)
+            (asserts! (is-eq dy (- start-amount-y-user end-amount-y-user)) ERR_SAFE_TRANSFER_AMOUNT)
+          )
+          (begin
+            (asserts! (is-eq dy (- end-amount-y-user start-amount-y-user)) ERR_SAFE_TRANSFER_AMOUNT)
+            (asserts! (is-eq dy (- start-amount-y-lp end-amount-y-lp)) ERR_SAFE_TRANSFER_AMOUNT)
+          )
+        )
+      (ok true)
     )
-  )
 )
 
-(define-read-only (get-total-supply (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>))
+(define-public (create-pair (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (pair-name (string-ascii 32)) (x uint) (y uint))
   (let
     (
       (token-x (contract-of token-x-trait))
       (token-y (contract-of token-y-trait))
-      (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
+      (token-liquidity (contract-of token-liquidity-trait))
+      (pair-id (+ (var-get pair-count) u1))
+      (pair-data {
+        shares-total: u0,
+        balance-x: u0,
+        balance-y: u0,
+        fee-balance-x: u0,
+        fee-balance-y: u0,
+        fee-to-address: (contract-call? .stackswap-dao get-payout-address),
+        liquidity-token: (contract-of token-liquidity-trait),
+        name: pair-name,
+      })
     )
-    (ok (get shares-total pair))
+    (asserts!
+      (and
+        (is-none (map-get? pairs-data-map { token-x: token-x, token-y: token-y }))
+        (is-none (map-get? pairs-data-map { token-x: token-y, token-y: token-x }))
+        (is-none (map-get? pairs-token-map token-liquidity))
+      )
+      ERR_PAIR_ALREADY_EXISTS
+    )
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "one-step-mint"))) ERR_DAO_ACCESS)
+    (try! (contract-call? token-liquidity-trait initialize-swap token-x token-y))
+    (try! (contract-call? token-liquidity-trait set-lp-data pair-data token-x token-y))
+
+    (map-set pairs-data-map { token-x: token-x, token-y: token-y } {liquidity-token: (contract-of token-liquidity-trait), pair-id: pair-id})
+    (map-set pairs-token-map token-liquidity true)
+    (map-set pairs-map pair-id { token-x: token-x, token-y: token-y, liquidity-token: (contract-of token-liquidity-trait)})
+    (var-set pair-count pair-id)
+
+    (try! (add-to-position token-x-trait token-y-trait token-liquidity-trait x y))
+    (print { object: "pair", action: "created", data: pair-data })
+    (ok true)
   )
 )
 
-;; get the total number of shares in the pool
-(define-read-only (get-shares (token-x principal) (token-y principal))
-  (ok (get shares-total (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err)))
-)
-
-;; get overall balances for the pair
-(define-public (get-balances (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>))
-  (let
-    (
-      (token-x (contract-of token-x-trait))
-      (token-y (contract-of token-y-trait))
-      (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
-    )
-    (ok (list (get balance-x pair) (get balance-y pair)))
-  )
-)
-
-(define-public (get-data (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (owner principal))
-  (let
-    (
-      (token-data (unwrap-panic (contract-call? token-liquidity-trait get-data owner)))
-      (balances (unwrap-panic (get-balances token-x-trait token-y-trait)))
-    )
-    (ok (merge token-data { balances: balances }))
-  )
-)
-
-;; since we can't use a constant to refer to contract address, here what x and y are
-;; (define-constant x-token 'SP2NC4YKZWM2YMCJV851VF278H9J50ZSNM33P3JM1.my-token)
-;; (define-constant y-token 'SP1QR3RAGH3GEME9WV7XB0TZCX6D5MNDQP97D35EH.my-token)
 (define-public (add-to-position (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (x uint) (y uint) )
   (let
     (
-      (token-x (contract-of token-x-trait))
-      (token-y (contract-of token-y-trait))
-      (pair (unwrap-panic (map-get? pairs-data-map { token-x: token-x, token-y: token-y })))
-      (contract-address (as-contract tx-sender))
-      (recipient-address tx-sender)
+      (pair (try! (contract-call? token-liquidity-trait get-lp-data) ))
       (balance-x (get balance-x pair))
       (balance-y (get balance-y pair))
       (new-shares
         (if (is-eq (get shares-total pair) u0)
-          (sqrti (* x y))  ;; burn a fraction of initial lp token to avoid attack as described in WP https://uniswap.org/whitepaper.pdf
+          (sqrti (* x y))
           (/ (* x (get shares-total pair)) balance-x)
         )
       )
@@ -151,81 +198,27 @@
         balance-y: (+ balance-y new-y)
       }))
     )
-    (asserts! (is-ok (contract-call? token-x-trait transfer x tx-sender contract-address)) transfer-x-failed-err)
-    (asserts! (is-ok (contract-call? token-y-trait transfer new-y tx-sender contract-address)) transfer-y-failed-err)
 
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y } pair-updated)
-    (try! (contract-call? token-liquidity-trait mint recipient-address new-shares))
+    (asserts! (or (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "one-step-mint")))) ERR_INVALID_ROUTER)
+
+    (try! (safe-transfer true true x new-y token-x-trait token-y-trait token-liquidity-trait))
+
+    (try! (contract-call? token-liquidity-trait set-lp-data pair-updated (contract-of token-x-trait) (contract-of token-y-trait)))
+    (try! (safe-mint token-liquidity-trait tx-sender new-shares))
     (print { object: "pair", action: "liquidity-added", data: pair-updated })
     (ok true)
   )
 )
 
-(define-read-only (get-pair-details (token-x principal) (token-y principal))
-  (unwrap-panic (map-get? pairs-data-map { token-x: token-x, token-y: token-y }))
-)
-
-(define-read-only (get-pair-contracts (pair-id uint))
-  (unwrap-panic (map-get? pairs-map { pair-id: pair-id }))
-)
-
-(define-read-only (get-pair-count)
-  (ok (var-get pair-count))
-)
-
-(define-public (create-pair (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (pair-name (string-ascii 32)) (x uint) (y uint))
-  (let
-    (
-      (name-x (unwrap-panic (contract-call? token-x-trait get-name)))
-      (name-y (unwrap-panic (contract-call? token-y-trait get-name)))
-      (token-x (contract-of token-x-trait))
-      (token-y (contract-of token-y-trait))
-      (token-liquidity (contract-of token-liquidity-trait))
-      (pair-id (+ (var-get pair-count) u1))
-      (pair-data {
-        shares-total: u0,
-        balance-x: u0,
-        balance-y: u0,
-        fee-balance-x: u0,
-        fee-balance-y: u0,
-        fee-to-address: none,
-        liquidity-token: (contract-of token-liquidity-trait),
-        name: pair-name,
-      })
-    )
-    (asserts!
-      (and
-        (is-none (map-get? pairs-data-map { token-x: token-x, token-y: token-y }))
-        (is-none (map-get? pairs-data-map { token-x: token-y, token-y: token-x }))
-        (is-none (map-get? pairs-token-map { pair-token: token-liquidity}))
-      )
-      pair-already-exists-err
-    )
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y } pair-data)
-
-    (map-set pairs-token-map { pair-token: token-liquidity} {exist: u1})
-    (map-set pairs-map { pair-id: pair-id } { token-x: token-x, token-y: token-y })
-    (var-set pair-count pair-id)
-    (try! (add-to-position token-x-trait token-y-trait token-liquidity-trait x y))
-    (print { object: "pair", action: "created", data: pair-data })
-    (ok true)
-  )
-)
-
-;; ;; reduce the amount of liquidity the sender provides to the pool
-;; ;; to close, use u100
 (define-public (reduce-position (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (percent uint))
   (let
     (
-      (token-x (contract-of token-x-trait))
-      (token-y (contract-of token-y-trait))
-      (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
+      (valid (asserts! (<= percent u100) ERR_VALUE_OUT_OF_RANGE))
+      (pair (try! (contract-call? token-liquidity-trait get-lp-data)))
       (balance-x (get balance-x pair))
       (balance-y (get balance-y pair))
-      (shares (unwrap-panic (contract-call? token-liquidity-trait get-balance-of tx-sender)))
+      (shares (try! (contract-call? token-liquidity-trait get-balance tx-sender)))
       (shares-total (get shares-total pair))
-      (contract-address (as-contract tx-sender))
-      (sender tx-sender)
       (withdrawal (/ (* shares percent) u100))
       (withdrawal-x (/ (* withdrawal balance-x) shares-total))
       (withdrawal-y (/ (* withdrawal balance-y) shares-total))
@@ -240,193 +233,155 @@
       )
     )
 
-    (asserts! (<= percent u100) value-out-of-range-err)
-    (asserts! (is-ok (as-contract (contract-call? token-x-trait transfer withdrawal-x contract-address sender))) transfer-x-failed-err)
-    (asserts! (is-ok (as-contract (contract-call? token-y-trait transfer withdrawal-y contract-address sender))) transfer-y-failed-err)
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) ERR_INVALID_ROUTER)
+    (try! (contract-call? token-liquidity-trait set-lp-data pair-updated (contract-of token-x-trait) (contract-of token-y-trait)))
 
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y } pair-updated)
+    (try! (safe-transfer false false withdrawal-x withdrawal-y token-x-trait token-y-trait token-liquidity-trait))
 
-    (try! (contract-call? token-liquidity-trait burn tx-sender withdrawal))
+    (try! (safe-burn token-liquidity-trait tx-sender withdrawal))
 
     (print { object: "pair", action: "liquidity-removed", data: pair-updated })
     (ok (list withdrawal-x withdrawal-y))
   )
 )
 
-;; exchange known dx of x-token for whatever dy of y-token based on current liquidity, returns (dx dy)
-;; the swap will not happen if can't get at least min-dy back
-(define-public (swap-x-for-y (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (dx uint) (min-dy uint))
-  ;; calculate dy
-  ;; calculate fee on dx
-  ;; transfer
-  ;; update balances
+
+(define-public (swap-x-for-y (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (dx uint) (min-dy uint))
   (let
     (
-      (token-x (contract-of token-x-trait))
-      (token-y (contract-of token-y-trait))
-      (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
+      (pair (try! (contract-call? token-liquidity-trait get-lp-data)))
       (balance-x (get balance-x pair))
       (balance-y (get balance-y pair))
-      (contract-address (as-contract tx-sender))
-      (sender tx-sender)
-      (fee-1 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-1) fee-contract-err))
-      (fee-2 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-2) fee-contract-err))
-      (fee-3 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-3) fee-contract-err))
-      (fee-4 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-4) fee-contract-err))
-      (dy (/ (* fee-1 balance-y dx) (+ (* fee-2 balance-x) (* fee-1 dx)))) ;; overall fee is 30 bp, all for the pool, or 25 bp for pool and 5 bp for operator
-      (fee (/ (* fee-3 dx) fee-4)) ;; 5 bp
+      (dy (/ (* FEE_1 balance-y dx) (+ (* FEE_2 balance-x) (* FEE_1 dx)))) 
+      (fee (/ (* FEE_3 dx) FEE_4))
       (pair-updated
         (merge pair
           {
-            balance-x: (+ (get balance-x pair) dx),
+            balance-x: (+ (get balance-x pair) (- dx fee)),
             balance-y: (- (get balance-y pair) dy),
-            fee-balance-x: (if (is-some (get fee-to-address pair))  ;; only collect fee when fee-to-address is set
-              (+ fee (get fee-balance-x pair))
-              (get fee-balance-x pair))
+            fee-balance-x: (+ fee (get fee-balance-x pair))
           }
         )
       )
     )
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) ERR_INVALID_ROUTER)
 
-    (asserts! (< min-dy dy) too-much-slippage-err)
-
-    (asserts! (is-ok (contract-call? token-x-trait transfer dx sender contract-address)) transfer-x-failed-err)
-    (asserts! (is-ok (as-contract (contract-call? token-y-trait transfer dy contract-address sender))) transfer-y-failed-err)
-
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y } pair-updated)
+    (try! (contract-call? token-liquidity-trait set-lp-data pair-updated (contract-of token-x-trait) (contract-of token-y-trait)))
     (print { object: "pair", action: "swap-x-for-y", data: pair-updated })
+
+    (asserts! (< min-dy dy) ERR_TOO_MUCH_SLIPPAGE)
+    (try! (safe-transfer true false dx dy token-x-trait token-y-trait token-liquidity-trait))
+
     (ok (list dx dy))
   )
 )
 
-;; exchange known dy for whatever dx based on liquidity, returns (dx dy)
-;; the swap will not happen if can't get at least min-dx back
-(define-public (swap-y-for-x (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (dy uint) (min-dx uint))
-  ;; calculate dx
-  ;; calculate fee on dy
-  ;; transfer
-  ;; update balances
-  (let ((token-x (contract-of token-x-trait))
-        (token-y (contract-of token-y-trait))
-        (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
+(define-public (swap-y-for-x (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>) (dy uint) (min-dx uint))
+  (let (
+        (pair (try! (contract-call? token-liquidity-trait get-lp-data)))
         (balance-x (get balance-x pair))
         (balance-y (get balance-y pair))
-        (contract-address (as-contract tx-sender))
-        (sender tx-sender)
-        (fee-1 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-1) fee-contract-err))
-        (fee-2 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-2) fee-contract-err))
-        (fee-3 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-3) fee-contract-err))
-        (fee-4 (unwrap! (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-swap-fee-v1 get-fee-4) fee-contract-err))
-        ;; check formula, vs x-for-y???
-        (dx (/ (* fee-1 balance-x dy) (+ (* fee-2 balance-y) (* fee-1 dy)))) ;; overall fee is 30 bp, all for the pool
-        (fee (/ (* fee-3 dy) fee-4)) ;; 0 bp
-        (pair-updated (merge pair {
-          balance-x: (- (get balance-x pair) dx),
-          balance-y: (+ (get balance-y pair) dy),
-          fee-balance-y: (if (is-some (get fee-to-address pair))  ;; only collect fee when fee-to-address is set
-            (+ fee (get fee-balance-y pair))
-            (get fee-balance-y pair))
-        })))
+        (dx (/ (* FEE_1 balance-x dy) (+ (* FEE_2 balance-y) (* FEE_1 dy)))) 
+        (fee (/ (* FEE_3 dy) FEE_4))
+        (pair-updated (merge pair
+          {
+            balance-x: (- (get balance-x pair) dx),
+            balance-y: (+ (get balance-y pair) (- dy fee)),
+            fee-balance-y: (+ fee (get fee-balance-y pair))
+          }
+        )
+      )
+    )
+    (asserts! (contract-call? .stackswap-security-list is-secure-router-or-user contract-caller) ERR_INVALID_ROUTER)
 
-    (asserts! (< min-dx dx) too-much-slippage-err)
-
-    (asserts! (is-ok (as-contract (contract-call? token-x-trait transfer dx contract-address sender))) transfer-x-failed-err)
-    (asserts! (is-ok (contract-call? token-y-trait transfer dy sender contract-address)) transfer-y-failed-err)
-
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y } pair-updated)
+    (try! (contract-call? token-liquidity-trait set-lp-data pair-updated (contract-of token-x-trait) (contract-of token-y-trait)))
     (print { object: "pair", action: "swap-y-for-x", data: pair-updated })
+
+    (asserts! (< min-dx dx) ERR_TOO_MUCH_SLIPPAGE)
+
+    (try! (safe-transfer false true dx dy token-x-trait token-y-trait token-liquidity-trait))
+
     (ok (list dx dy))
   )
 )
 
-;; ;; activate the contract fee for swaps by setting the collection address, restricted to contract owner
-(define-public (set-fee-to-address (token-x principal) (token-y principal) (address principal))
-  (let ((pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err)))
-
-    (asserts! (is-eq tx-sender contract-owner) not-owner-err)
-
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y }
-      {
-        shares-total: (get shares-total pair),
-        balance-x: (get balance-y pair),
-        balance-y: (get balance-y pair),
-        fee-balance-x: (get fee-balance-y pair),
-        fee-balance-y: (get fee-balance-y pair),
-        fee-to-address: (some address),
-        name: (get name pair),
-        liquidity-token: (get liquidity-token pair),
-      }
-    )
+(define-public (set-fee-to-address (token-liquidity-trait <liquidity-token>) (address principal))
+  (begin
+    (asserts! (is-eq contract-caller (contract-call? .stackswap-dao get-dao-owner)) ERR_NOT_OWNER)
+    (try! (contract-call? token-liquidity-trait set-fee-to-address address))
     (ok true)
   )
 )
 
-;; ;; clear the contract fee addres
-(define-public (reset-fee-to-address (token-x principal) (token-y principal))
-  (let ((pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err)))
-
-    (asserts! (is-eq tx-sender contract-owner) not-owner-err)
-
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y }
-      {
-        shares-total: (get shares-total pair),
-        balance-x: (get balance-x pair),
-        balance-y: (get balance-y pair),
-        fee-balance-x: (get fee-balance-y pair),
-        fee-balance-y: (get fee-balance-y pair),
-        fee-to-address: none,
-        name: (get name pair),
-        liquidity-token: (get liquidity-token pair),
-      }
-    )
-    (ok true)
-  )
-)
-
-;; ;; get the current address used to collect a fee
-(define-read-only (get-fee-to-address (token-x principal) (token-y principal))
-  (let ((pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err)))
-    (ok (get fee-to-address pair))
-  )
-)
-
-;; ;; get the amount of fees charged on x-token and y-token exchanges that have not been collected yet
-(define-read-only (get-fees (token-x principal) (token-y principal))
-  (let ((pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err)))
-    (ok (list (get fee-balance-x pair) (get fee-balance-y pair)))
-  )
-)
-
-;; ;; send the collected fees the fee-to-address
-(define-public (collect-fees (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>))
+(define-public (collect-fees (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>))
   (let
     (
       (token-x (contract-of token-x-trait))
       (token-y (contract-of token-y-trait))
-      (contract-address (as-contract tx-sender))
-      (pair (unwrap! (map-get? pairs-data-map { token-x: token-x, token-y: token-y }) invalid-pair-err))
-      (address (unwrap! (get fee-to-address pair) no-fee-to-address-err))
+      (pair (try! (contract-call? token-liquidity-trait get-lp-data)))
+      (address (get fee-to-address pair))
       (fee-x (get fee-balance-x pair))
       (fee-y (get fee-balance-y pair))
     )
+    (print {fee-x: fee-x})
+    (print {fee-y: fee-y})
+    (asserts! (> fee-x u0) ERR_NO_FEE_X)
+    (asserts! (> fee-y u0) ERR_NO_FEE_Y)
+    (asserts! (is-eq contract-caller address) ERR_NOT_FEE_TO_ADDRESS)
 
-    (asserts! (is-eq fee-x u0) no-fee-x-err)
-    (asserts! (is-ok (as-contract (contract-call? token-x-trait transfer fee-x contract-address address))) transfer-x-failed-err)
-    (asserts! (is-eq fee-y u0) no-fee-y-err)
-    (asserts! (is-ok (as-contract (contract-call? token-y-trait transfer fee-y contract-address address))) transfer-y-failed-err)
+    (try! (safe-transfer false false fee-x fee-y token-x-trait token-y-trait token-liquidity-trait))
 
-    (map-set pairs-data-map { token-x: token-x, token-y: token-y }
-      {
-        shares-total: (get shares-total pair),
-        balance-x: (get balance-x pair),
-        balance-y: (get balance-y pair),
+    (try! (contract-call? token-liquidity-trait set-lp-data (merge pair {
         fee-balance-x: u0,
-        fee-balance-y: u0,
-        fee-to-address: (get fee-to-address pair),
-        name: (get name pair),
-        liquidity-token: (get liquidity-token pair),
-      }
-    )
+        fee-balance-y: u0,}) token-x token-y))
     (ok (list fee-x fee-y))
   )
 )
+
+(define-public (fix-or-add-pair (token-x-trait <sip-010-token>) (token-y-trait <sip-010-token>) (token-liquidity-trait <liquidity-token>))
+  (let
+    (
+      (contract-owner-check (asserts! (is-eq contract-caller (contract-call? .stackswap-dao get-dao-owner)) ERR_NOT_OWNER))
+      (token-x (contract-of token-x-trait))
+      (token-y (contract-of token-y-trait))
+      (token-liquidity (contract-of token-liquidity-trait))
+      (x-to-y (is-some (map-get? pairs-data-map { token-x: token-x, token-y: token-y })))
+      (y-to-x (is-some (map-get? pairs-data-map { token-x: token-y, token-y: token-x })))
+    )
+    (if x-to-y 
+      (let
+        (
+            (pair-id (unwrap! (get pair-id (map-get? pairs-data-map { token-x: token-x, token-y: token-y })) ERR_MAP_GET))
+        )
+        (map-set pairs-data-map { token-x: token-x, token-y: token-y } {liquidity-token: token-liquidity, pair-id: pair-id})
+        (map-set pairs-token-map token-liquidity true)
+        (map-set pairs-map pair-id { token-x: token-x, token-y: token-y, liquidity-token: token-liquidity})
+        (ok pair-id)
+      )
+      (if y-to-x
+        (let
+          (
+            (pair-id (unwrap! (get pair-id (map-get? pairs-data-map { token-x: token-y, token-y: token-x })) ERR_MAP_GET))
+          )
+          (map-delete pairs-data-map { token-x: token-y, token-y: token-x })
+          (map-set pairs-data-map { token-x: token-x, token-y: token-y } {liquidity-token: token-liquidity, pair-id: pair-id})
+          (map-set pairs-token-map token-liquidity true)
+          (map-set pairs-map pair-id { token-x: token-x, token-y: token-y, liquidity-token: token-liquidity})
+          (ok pair-id)
+
+        )
+        (let
+          (
+            (pair-id (+ (var-get pair-count) u1))
+          )
+          (map-set pairs-data-map { token-x: token-x, token-y: token-y } {liquidity-token: token-liquidity, pair-id: pair-id})
+          (map-set pairs-token-map token-liquidity true)
+          (map-set pairs-map pair-id { token-x: token-x, token-y: token-y, liquidity-token: token-liquidity})
+          (var-set pair-count pair-id)
+          (ok pair-id)
+        )
+      )
+    )
+  )
+)
+

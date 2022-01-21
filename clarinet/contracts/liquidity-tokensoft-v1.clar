@@ -1,61 +1,72 @@
-;; ;; we implement the sip-010 + a mint function liquidity-token-soft-trait
-(impl-trait 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.liquidity-token-trait.liquidity-token-trait)
-(impl-trait 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.initializable-token-trait.initializable-liquidity-token-trait)
+(impl-trait .liquidity-token-trait-v1.liquidity-token-trait)
+(impl-trait .initializable-token-trait.initializable-liquidity-token-trait)
+(use-trait sip-010-token .sip-010-trait-v1.sip-010-trait)
 
-;; ;; we can use an ft-token here, so use it!
-(define-fungible-token tokensoft-token)
+(define-fungible-token liquidity-token)
 
-(define-constant no-acccess-err u40)
+(define-constant ERR_UNAUTHORIZED u4201)
+(define-constant ERR_TOKEN_TRANSFER u4202)
+(define-constant ERR_ALREADY_INITIALIZED u4203)
+(define-constant ERR_NOT_INITIALIZED u4204)
+(define-constant ERR_INVALID_LP_TOKEN u4205)
+(define-constant ERR_INVALID_TOKEN u4206)
+(define-constant ERR_ALREADY_IN_SWAP u4207)
+(define-constant ERR_DAO_ACCESS u4208)
 
-;; Error returned for permission denied - stolen from http 403
-(define-constant PERMISSION_DENIED_ERROR u403)
 
-;; Track who deployed the token and whether it has been initialized
-(define-data-var deployer-principal principal tx-sender)
+(define-constant NULL_PRINCIPAL tx-sender)
 
 (define-data-var is-initialized bool false)
+(define-data-var is-in-swap bool false)
+
 
 (define-data-var token-name (string-ascii 32) "")
 (define-data-var token-symbol (string-ascii 32) "")
-(define-data-var token-decimals uint u0)
+(define-data-var token-decimals uint u6)
 
-;; implement all functions required by sip-010
 
-(define-public (transfer (amount uint) (sender principal) (recipient principal))
+(define-data-var token-x principal NULL_PRINCIPAL)
+(define-data-var token-y principal NULL_PRINCIPAL)
+
+(define-data-var shares-total uint u0)
+(define-data-var balance-x uint u0)
+(define-data-var balance-y uint u0)
+(define-data-var fee-balance-x uint u0)
+(define-data-var fee-balance-y uint u0)
+(define-data-var fee-to-address principal tx-sender)
+
+
+(define-public (transfer (amount uint) (from principal) (to principal) (memo (optional (buff 34))))
   (begin
-    (ft-transfer? tokensoft-token amount tx-sender recipient)
+    (asserts! (is-eq from tx-sender) (err ERR_UNAUTHORIZED))
+    (try! (ft-transfer? liquidity-token amount from to))
+	(match memo to-print (print to-print) 0x)
+	(ok true)
   )
 )
 
-;; Returns the token name
 (define-read-only (get-name)
   (ok (var-get token-name)))
 
-;; Returns the symbol or "ticker" for this token
 (define-read-only (get-symbol)
   (ok (var-get token-symbol)))
 
-;; Returns the number of decimals used
 (define-read-only (get-decimals)
   (ok (var-get token-decimals)))
 
-(define-read-only (get-balance-of (owner principal))
-  (ok (ft-get-balance tokensoft-token owner))
+(define-read-only (get-balance (owner principal))
+  (ok (ft-get-balance liquidity-token owner))
 )
 
 (define-read-only (get-total-supply)
-  (ok (ft-get-supply tokensoft-token))
+  (ok (ft-get-supply liquidity-token))
 )
 
-;; Variable for URI storage
 (define-data-var uri (string-utf8 256) u"")
 
-;; Public getter for the URI
 (define-read-only (get-token-uri)
   (ok (some (var-get uri))))
 
-
-;; one stop function to gather all the data relevant to the liquidity token in one call
 (define-read-only (get-data (owner principal))
   (ok {
     name: (unwrap-panic (get-name)),
@@ -63,33 +74,27 @@
     decimals: (unwrap-panic (get-decimals)),
     uri: (unwrap-panic (get-token-uri)),
     supply: (unwrap-panic (get-total-supply)),
-    balance: (unwrap-panic (get-balance-of owner))
+    balance: (unwrap-panic (get-balance owner))
   })
 )
 
-;; the extra mint method used by stackswap when adding liquidity
-;; can only be used by STACKSWAP main contract
 (define-public (mint (recipient principal) (amount uint))
   (begin
     (print "token-liquidity.mint")
     (print (some contract-caller))
-    ;; (print (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao get-qualified-name-by-name "swap"))
     (print amount)
-    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao get-qualified-name-by-name "swap"))) (err no-acccess-err))
-    (ft-mint? tokensoft-token amount recipient)
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "swap"))) (err ERR_DAO_ACCESS))
+    (ft-mint? liquidity-token amount recipient)
   )
 )
 
-
-;; the extra burn method used by STACKSWAP when removing liquidity
-;; can only be used by STACKSWAP main contract
 (define-public (burn (recipient principal) (amount uint))
   (begin
     (print "token-liquidity.burn")
     (print contract-caller)
     (print amount)
-    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao get-qualified-name-by-name "swap"))) (err no-acccess-err))
-    (ft-burn? tokensoft-token amount recipient)
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "swap"))) (err ERR_DAO_ACCESS))
+    (ft-burn? liquidity-token amount recipient)
   )
 )
 
@@ -97,14 +102,85 @@
   (begin
     (print "token-liquidity.init")
     (print contract-caller)
-    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.stackswap-dao get-qualified-name-by-name "one-step-mint"))) (err no-acccess-err))
-    (asserts! (not (var-get is-initialized)) (err PERMISSION_DENIED_ERROR))
-    (var-set is-initialized true) ;; Set to true so that this can't be called again
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "one-step-mint"))) (err ERR_DAO_ACCESS))
+    (asserts! (not (var-get is-initialized)) (err ERR_ALREADY_INITIALIZED))
+    (var-set is-initialized true)
     (var-set token-name name-to-set)
     (var-set token-symbol symbol-to-set)
     (var-set token-decimals decimals-to-set)
     (var-set uri uri-to-set)
-    ;; (map-set roles { role: MINTER_ROLE, account: initial-owner } { allowed: true })
     (ok u0)
   )
 )
+
+
+(define-public (transfer-token (amount uint) (token <sip-010-token>) (to principal) )
+  (begin
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "swap"))) (err ERR_DAO_ACCESS))
+    (unwrap! (as-contract (contract-call? token transfer amount tx-sender to none)) (err ERR_TOKEN_TRANSFER))
+    (ok true)
+  )
+)
+
+(define-public (initialize-swap (token-x-input principal) (token-y-input principal))
+  (begin
+    (print "token-liquidity.init")
+    (print contract-caller)
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "swap"))) (err ERR_DAO_ACCESS))
+    (asserts!  (var-get is-initialized) (err ERR_NOT_INITIALIZED))
+    (asserts! (not (var-get is-in-swap)) (err ERR_ALREADY_IN_SWAP))
+    (var-set is-in-swap true) ;; Set to true so that this can't be called again
+    (var-set token-x token-x-input)
+    (var-set token-y token-y-input)
+    (ok true)
+  )
+)
+
+(define-public (set-lp-data ( data {
+    shares-total: uint,
+    balance-x: uint,
+    balance-y: uint,
+    fee-balance-x: uint,
+    fee-balance-y: uint,
+    fee-to-address: principal,
+    liquidity-token: principal,
+    name: (string-ascii 32),
+  }) (token-x-input principal) (token-y-input principal))
+  (begin
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "swap"))) (err ERR_DAO_ACCESS))
+    (asserts! (is-eq (as-contract tx-sender) (get liquidity-token data)) (err ERR_INVALID_LP_TOKEN))
+    (asserts! (is-eq token-x-input (var-get token-x)) (err ERR_INVALID_TOKEN))
+    (asserts! (is-eq token-y-input (var-get token-y)) (err ERR_INVALID_TOKEN))
+    (var-set shares-total (get shares-total data))
+    (var-set balance-x (get balance-x data))
+    (var-set balance-y (get balance-y data))
+    (var-set fee-balance-x (get fee-balance-x data))
+    (var-set fee-balance-y (get fee-balance-y data))
+    (var-set fee-to-address (get fee-to-address data))
+    (ok true)
+  )
+)
+
+(define-public (set-fee-to-address (fee-to-address-in principal))
+  (begin
+    (asserts! (is-eq contract-caller (unwrap-panic (contract-call? .stackswap-dao get-qualified-name-by-name "swap"))) (err ERR_DAO_ACCESS))
+    (var-set fee-to-address fee-to-address-in)
+    (ok true)
+  )
+)
+
+(define-read-only (get-lp-data)
+  (ok {
+  shares-total: (var-get shares-total),
+  balance-x: (var-get balance-x),
+  balance-y: (var-get balance-y),
+  fee-balance-x: (var-get fee-balance-x),
+  fee-balance-y: (var-get fee-balance-y),
+  fee-to-address: (var-get fee-to-address),
+  liquidity-token: (as-contract tx-sender),
+  name: (var-get token-name),
+  })
+)
+
+(define-read-only (get-tokens)
+  (ok {token-x: (var-get token-x), token-y: (var-get token-y)}))

@@ -1,10 +1,12 @@
 ;; this is an SIP-010 method with an additional functions used by stackswap-swap
 ;; as Clarity does not support "includes", copy the needed functions, and add new ones
 
+(use-trait sip-010-token .sip-010-trait-v1.sip-010-trait)
+
 (define-trait liquidity-token-trait
   (
     ;; Transfer from the caller to a new principal
-    (transfer (uint principal principal) (response bool uint))
+    (transfer (uint principal principal (optional (buff 34))) (response bool uint))
 
     ;; the human readable name of the token
     (get-name () (response (string-ascii 32) uint))
@@ -16,7 +18,7 @@
     (get-decimals () (response uint uint))
 
     ;; the balance of the passed principal
-    (get-balance-of (principal) (response uint uint))
+    (get-balance (principal) (response uint uint))
 
     ;; the current total supply (which does not need to be a constant)
     (get-total-supply () (response uint uint))
@@ -41,5 +43,36 @@
       supply: uint,
       balance: uint,
     } uint))
+    
+    (transfer-token (uint <sip-010-token> principal) (response bool uint))
+    
+
+    (initialize-swap (principal principal) (response bool uint))
+
+    (set-lp-data ({
+        shares-total: uint,
+        balance-x: uint,
+        balance-y: uint,
+        fee-balance-x: uint,
+        fee-balance-y: uint,
+        fee-to-address: principal,
+        liquidity-token: principal,
+        name: (string-ascii 32),
+      } principal principal) (response bool uint))
+
+    (get-lp-data () (response {
+        shares-total: uint,
+        balance-x: uint,
+        balance-y: uint,
+        fee-balance-x: uint,
+        fee-balance-y: uint,
+        fee-to-address: principal,
+        liquidity-token: principal,
+        name: (string-ascii 32),
+      } uint))
+
+    (set-fee-to-address (principal) (response bool uint))
+
+    (get-tokens () (response {token-x: principal, token-y: principal} uint))
   )
 )

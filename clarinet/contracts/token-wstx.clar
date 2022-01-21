@@ -1,13 +1,13 @@
 ;; wrap the native STX token into an SRC20 compatible token to be usable along other tokens
-(impl-trait 'ST1HTBVD3JG9C05J7HBJTHGR0GGW7KXW28M5JS8QE.sip-010-trait.ft-trait)
+(impl-trait .sip-010-trait-v1.sip-010-trait)
 
-
-(define-constant PERMISSION_DENIED_ERROR u403)
+;; STSW_TOKEN ERRORS 4226~4229
+(define-constant PERMISSION_DENIED_ERROR u4225)
 
 (define-data-var deployer-principal principal tx-sender)
 
 ;; get the token balance of owner
-(define-read-only (get-balance-of (owner principal))
+(define-read-only (get-balance (owner principal))
   (begin
     (ok (print (stx-get-balance owner)))
   )
@@ -19,11 +19,11 @@
 
 ;; returns the token name
 (define-read-only (get-name)
-  (ok "wSTX")
+  (ok "wrapped STX")
 )
 
 (define-read-only (get-symbol)
-  (ok "wSTX")
+  (ok "STX")
 )
 
 ;; the number of decimals used
@@ -32,7 +32,7 @@
 )
 
 ;; Variable for URI storage
-(define-data-var uri (string-utf8 256) u"https://swapr.finance/tokens/stx.json")
+(define-data-var uri (string-utf8 256) u"https://app.stackswap.org/tokens/stx.json")
 
 ;; Public getter for the URI
 (define-read-only (get-token-uri)
@@ -49,9 +49,12 @@
 
 
 ;; Transfers tokens to a recipient
-(define-public (transfer (amount uint) (sender principal) (recipient principal))
+
+(define-public (transfer (amount uint) (from principal) (to principal) (memo (optional (buff 34))))
   (begin
-    (asserts! (is-eq tx-sender sender) (err u255)) ;; too strict?
-    (stx-transfer? amount tx-sender recipient)
+    (asserts! (is-eq from tx-sender) (err PERMISSION_DENIED_ERROR))
+    (try! (stx-transfer? amount tx-sender to))
+    (match memo to-print (print to-print) 0x)
+    (ok true)
   )
 )
