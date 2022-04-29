@@ -39,19 +39,15 @@
 )
 
 (define-data-var proposal-count uint u0)
-(define-data-var proposal-ids (list 100 uint) (list u0))
 
 (define-data-var reward-amount-per-proposal uint u1000000)
 
 (define-map votes-by-member { proposal-id: uint, member: principal } { vote-count: uint, returned: bool })
 
-(define-read-only (get-proposals)
-  (ok (map get-proposal-by-id (var-get proposal-ids)))
+(define-read-only (get-proposals (proposal-ids (list 100 uint)))
+  (ok (map get-proposal-by-id proposal-ids))
 )
 
-(define-read-only (get-proposal-ids)
-  (ok (var-get proposal-ids))
-)
 
 (define-read-only (get-votes-by-member-by-id (proposal-id uint) (member principal))
   (default-to 
@@ -88,6 +84,8 @@
     ))
   )
 )
+
+
 
 (define-read-only (get-proposal-by-id (proposal-id uint))
   (default-to
@@ -141,7 +139,6 @@
       }
     )
     (var-set proposal-count proposal-id)
-    (var-set proposal-ids (unwrap-panic (as-max-len? (append (var-get proposal-ids) proposal-id) u100)))
     (ok true)
   )
 )
