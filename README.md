@@ -41,6 +41,8 @@ Can control STSW supply. Voting with STSW and vSTSW.
 ## StackswapToken on Ethereum main network
 ### ERC20 Contract 
 ./evm_contract/StackswapToken.sol
+### ERC20 Address
+0x1C98B54d673C026C8286bADCa3E840aaf72931a3
 
 ## Future Works
 Multiple AMM choices /
