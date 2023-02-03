@@ -38,6 +38,9 @@ Can control STSW supply. Voting with STSW and vSTSW.
     npm install
     node deploy.js
     ```
+## StackswapToken on Ethereum main network
+### ERC20 Contract 
+./evm_contract/StackswapToken.sol
 
 ## Future Works
 Multiple AMM choices /
