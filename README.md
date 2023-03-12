@@ -41,8 +41,14 @@ Can control STSW supply. Voting with STSW and vSTSW.
 ## StackswapToken on Ethereum main network
 ### ERC20 Contract 
 ./evm_contract/StackswapToken.sol
+
 ### ERC20 Address
-0x1C98B54d673C026C8286bADCa3E840aaf72931a3
+Ethereum : 0x1C98B54d673C026C8286bADCa3E840aaf72931a3
+Polygon (Womhole) : 0xFC77cC32e570bAeC16f69DDed556a35811b5A6ce 
+
+### Bridge
+STX <-> ETH : Comming Soon
+ETH <-> Polygon : https://www.portalbridge.com/
 
 ## Future Works
 Multiple AMM choices /
